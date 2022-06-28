@@ -1,43 +1,139 @@
-# ASP.NET Core updated
-# Build and test ASP.NET Core projects targeting .NET Core.
-# Add steps that run tests, create a NuGet package, deploy, and more:
-# https://docs.microsoft.com/azure/devops/pipelines/languages/dotnet-core
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
 
 trigger:
-- master
+- YAML_BuildandDeploy
 
-pool:
-  vmImage: 'windows-2019'
+stages:
+  - stage: Build
+    jobs:
+      - job: BuildWebApp
+        variables:
+          buildConfiguration: 'Release'
 
-variables:
-  buildConfiguration: 'Release'
+        pool:
+          vmImage: 'ubuntu-latest'
 
-steps:
-- script: dotnet restore
+        steps:
+        - task: UseDotNet@2
+          inputs:
+            packageType: 'sdk'
+            version: '5.x'
+        - task: DotNetCoreCLI@2
+          displayName: 'Build Application'
+          inputs:
+            command: 'publish'
+            publishWebProjects: true
+            arguments: '--configuration $(buildConfiguration) --output $(Build.BinariesDirectory)/$(Build.BuildId)'
+            modifyOutputPath: false
+            workingDirectory: 'src'
+          
+        - task: PublishBuildArtifacts@1
+          displayName: 'Publish Web Artifact'
+          inputs:
+            PathtoPublish: '$(Build.BinariesDirectory)/$(Build.BuildId)'
+            ArtifactName: 'drop-$(Build.BuildId)'
+            publishLocation: 'Container'
 
-- script: dotnet build --configuration $(buildConfiguration)
-  displayName: 'dotnet build $(buildConfiguration)'
+        - task: PublishBuildArtifacts@1
+          displayName: 'Publish ARM Artifact'
+          inputs:
+            PathtoPublish: 'deploy/'
+            ArtifactName: 'drop-arm'
+            publishLocation: 'Container'
 
-# do this after you've built your app, near the end of your pipeline in most cases
-# for example, you do this before you deploy to an Azure web app on Windows
-- task: DotNetCoreCLI@2
-  inputs:
-    command: publish
-    publishWebProjects: True
-    arguments: '--configuration $(BuildConfiguration) --output $(Build.ArtifactStagingDirectory)'
-    zipAfterPublish: True 
+  - stage: DeployDev
+    displayName: 'Deploy To Dev'
+    variables: 
+         - group: 'YAML-Releases-Dev'
+    jobs:
+      - deployment: 
+        pool:
+          vmImage: 'ubuntu-latest'
+        environment: 'Dev'
+        strategy:
+         runOnce:
+           deploy:
+             steps:
+              - task: replacetokens@3
+                inputs:
+                  rootDirectory: '$(Pipeline.Workspace)/drop-arm'
+                  targetFiles: 'webapp.parameters.json'
+                  encoding: 'auto'
+                  writeBOM: true
+                  actionOnMissing: 'warn'
+                  keepToken: false
+                  tokenPrefix: '#'
+                  tokenSuffix: '#'
+                  useLegacyPattern: false
+                  enableTelemetry: true
+              
+              - task: AzureResourceManagerTemplateDeployment@3
+                inputs:
+                  deploymentScope: 'Resource Group'
+                  azureResourceManagerConnection: 'Visual Studio Professional with MSDN (b3c70d42-a0b9-4730-84a4-b0004a31f7b4)'
+                  subscriptionId: 'b3c70d42-a0b9-4730-84a4-b0004a31f7b4'
+                  action: 'Create Or Update Resource Group'
+                  resourceGroupName: 'yaml-releases-dev'
+                  location: 'Australia East'
+                  templateLocation: 'Linked artifact'
+                  csmFile: '$(Pipeline.Workspace)/drop-arm/webapp.json'
+                  csmParametersFile: '$(Pipeline.Workspace)/drop-arm/webapp.parameters.json'
+                  deploymentMode: 'Incremental'
+             
+              - task: AzureRmWebAppDeployment@4
+                inputs:
+                  ConnectionType: 'AzureRM'
+                  azureSubscription: 'Visual Studio Professional with MSDN (b3c70d42-a0b9-4730-84a4-b0004a31f7b4)'
+                  appType: 'webApp'
+                  WebAppName: '$(arm_webApp)'
+                  packageForLinux: '$(Pipeline.Workspace)/**/*.zip'
 
-- task: PublishBuildArtifacts@1
-  displayName: 'publish artifacts'
-
-- task: AzureRmWebAppDeployment@4
-  inputs:
-    ConnectionType: 'AzureRM'
-    azureSubscription: '<REPLACE_AZURE_SUBSCRIPTION_NAME_(ID)>'
-    appType: 'webApp'
-    WebAppName: 'WebProjectForPipelines'
-    packageForLinux: '$(System.ArtifactsDirectory)/**/*.zip'
-    enableCustomDeployment: true
-    DeploymentType: 'webDeploy'
-
-
+  - stage: DeployTest
+    displayName: 'Deploy To Test'
+    variables: 
+         - group: 'YAML-Releases-Test'
+    jobs:
+      - deployment: 
+        pool:
+          vmImage: 'ubuntu-latest'
+        environment: 'Test'
+        strategy:
+         runOnce:
+           deploy:
+             steps:
+              - task: replacetokens@3
+                inputs:
+                  rootDirectory: '$(Pipeline.Workspace)/drop-arm'
+                  targetFiles: 'webapp.parameters.json'
+                  encoding: 'auto'
+                  writeBOM: true
+                  actionOnMissing: 'warn'
+                  keepToken: false
+                  tokenPrefix: '#'
+                  tokenSuffix: '#'
+                  useLegacyPattern: false
+                  enableTelemetry: true
+              
+              - task: AzureResourceManagerTemplateDeployment@3
+                inputs:
+                  deploymentScope: 'Resource Group'
+                  azureResourceManagerConnection: 'Visual Studio Professional with MSDN (b3c70d42-a0b9-4730-84a4-b0004a31f7b4)'
+                  subscriptionId: 'b3c70d42-a0b9-4730-84a4-b0004a31f7b4'
+                  action: 'Create Or Update Resource Group'
+                  resourceGroupName: 'yaml-releases-test'
+                  location: 'Australia East'
+                  templateLocation: 'Linked artifact'
+                  csmFile: '$(Pipeline.Workspace)/drop-arm/webapp.json'
+                  csmParametersFile: '$(Pipeline.Workspace)/drop-arm/webapp.parameters.json'
+                  deploymentMode: 'Incremental'
+             
+              - task: AzureRmWebAppDeployment@4
+                inputs:
+                  ConnectionType: 'AzureRM'
+                  azureSubscription: 'Visual Studio Professional with MSDN (b3c70d42-a0b9-4730-84a4-b0004a31f7b4)'
+                  appType: 'webApp'
+                  WebAppName: '$(arm_webApp)'
+                  packageForLinux: '$(Pipeline.Workspace)/**/*.zip'
