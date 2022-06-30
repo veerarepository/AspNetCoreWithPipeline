@@ -33,9 +33,9 @@ steps:
 - task: AzureRmWebAppDeployment@4
   inputs:
     ConnectionType: 'AzureRM'
-    azureSubscription: '<REPLACE_AZURE_SUBSCRIPTION_NAME_(ID)>'
+    azureSubscription: '2877c531-6e0e-47f7-93c1-d913935a369d'
     appType: 'webApp'
-    WebAppName: 'WebProjectForPipelines'
+    WebAppName: 'veerawebapp12345'
     packageForLinux: '$(System.ArtifactsDirectory)/**/*.zip'
     enableCustomDeployment: true
     DeploymentType: 'webDeploy'
